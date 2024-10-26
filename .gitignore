@@ -1,0 +1,5 @@
+bin/
+*.log
+example.yml
+old/
+old2/
