@@ -166,7 +166,7 @@ func (cr *ContainerResolver) ResolveTarget(serviceName string, containerPort str
 					return hostIP, port, err
 				}
 			}
-			return "", 0, fmt.Errorf("port %s not found for service %s", containerPort, serviceName)
+			return "", 0, fmt.Errorf("listener %s not found for service %s", containerPort, serviceName)
 		}
 	}
 	return "", 0, fmt.Errorf("service %s not found", serviceName)

@@ -492,7 +492,7 @@ func (lb *LoadBalancer) healthCheckLoop() {
 	}
 }
 func (lb *LoadBalancer) performHealthCheck() {
-	log.Printf("Performing health check")
+	// DBG: log.Printf("Performing health check")
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
@@ -507,7 +507,7 @@ func (lb *LoadBalancer) performHealthCheck() {
 		// Resolve actual host and port using container resolver
 		hostIP, hostPort, err := lb.resolver.ResolveTarget(route.Service, route.Port)
 		if err != nil {
-			log.Printf("Failed to resolve service %s: %v", route.Service, err)
+			log.Printf("Failed to reach service %s: %v", route.Service, err)
 			allHealthy = false
 			lb.health.FailedEndpoints[path] = fmt.Errorf("service resolution failed: %w", err)
 			lb.health.ConsecutiveFails++
@@ -677,18 +677,18 @@ func (lb *LoadBalancer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer metrics.ActiveConnections.Dec()
 
 	// Circuit breaker pattern
-	if !lb.isHealthy() {
-		log.Printf("Service temporarily unavailable ")
-		// if lb.shouldAttemptRecovery() {
-		// 	if err := lb.attemptRecovery(); err != nil {
-		// 		http.Error(w, "Service temporarily unavailable", http.StatusServiceUnavailable)
-		// 		return
-		// 	}
-		// } else {
-		// 	http.Error(w, "Service temporarily unavailable", http.StatusServiceUnavailable)
-		// 	return
-		// }
-	}
+	// if !lb.isHealthy() {
+	// 	log.Printf("Service temporarily unavailable ")
+	// if lb.shouldAttemptRecovery() {
+	// 	if err := lb.attemptRecovery(); err != nil {
+	// 		http.Error(w, "Service temporarily unavailable", http.StatusServiceUnavailable)
+	// 		return
+	// 	}
+	// } else {
+	// 	http.Error(w, "Service temporarily unavailable", http.StatusServiceUnavailable)
+	// 	return
+	// }
+	// }
 
 	// Handle WebSocket upgrade
 	if websocket.IsWebSocketUpgrade(r) {
