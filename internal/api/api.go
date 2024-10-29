@@ -50,13 +50,15 @@ func Handler(m *nes.Manager) http.Handler {
 
 		// Container operations
 		r.Route("/containers", func(r chi.Router) {
-			r.Get("", handleListContainers(m))
-			r.Get("/{name}", handleGetContainer(m))
-			r.Post("/start", handleStartContainer(m))
-			r.Post("/stop", handleStopContainer(m))
-			r.Post("/restart", handleRestartContainer(m))
-			r.Post("/pull", handlePullContainer(m))
-			r.Get("/health", handleContainerHealth(m))
+			r.Get("/", handleListContainers(m))
+			r.Route("/{name}", func(r chi.Router) {
+				r.Get("/", handleGetContainer(m))
+				r.Post("//start", handleStartContainer(m))
+				r.Post("/stop", handleStopContainer(m))
+				r.Post("/restart", handleRestartContainer(m))
+				r.Post("/pull", handlePullContainer(m))
+				r.Get("/health", handleContainerHealth(m))
+			})
 		})
 
 		// Secret management
@@ -205,38 +207,43 @@ func handleListContainers(m *nes.Manager) http.HandlerFunc {
 	}
 }
 
+type ContainerResponse struct {
+	Config    *nes.Service        `json:"service_config,omitempty"`
+	Container types.ContainerJSON `json:"container"`
+	Resources struct {
+		Memory    float64 `json:"memory_usage_mb,omitempty"`
+		CPU       float64 `json:"cpu_usage_percent,omitempty"`
+		DiskRead  int64   `json:"disk_read_bytes,omitempty"`
+		DiskWrite int64   `json:"disk_write_bytes,omitempty"`
+	} `json:"resources"`
+	Networks map[string]*network.EndpointSettings `json:"networks"`
+	Volumes  map[string]struct{}                  `json:"volumes"`
+	Ports    []types.Port                         `json:"ports"`
+	Labels   map[string]string                    `json:"labels"`
+	LogTail  []string                             `json:"recent_logs,omitempty"`
+}
+
 func handleGetContainer(m *nes.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+
 		name := chi.URLParam(r, "name")
+		var response = ContainerResponse{}
+
+		if _, ok := m.Config.Services[name]; !ok {
+			respondWithError(w, http.StatusNotFound, "Service not found", nil)
+			return
+		}
+
+		config := m.Config.Services[name]
+		response.Config = &config
 
 		// Try to find container by name or ID
 		cntr, err := m.Client.ContainerInspect(r.Context(), name)
 		if err != nil {
-			// If not found by ID, try to find by name
-			containers, listErr := m.Client.ContainerList(r.Context(), container.ListOptions{All: true})
-			if listErr != nil {
-				respondWithError(w, http.StatusInternalServerError, "Failed to list containers", listErr)
-				return
-			}
-
-			found := false
-			for _, c := range containers {
-				for _, cname := range c.Names {
-					if strings.TrimPrefix(cname, "/") == name {
-						cntr, err = m.Client.ContainerInspect(r.Context(), c.ID)
-						found = true
-						break
-					}
-				}
-				if found {
-					break
-				}
-			}
-
-			if !found {
-				respondWithError(w, http.StatusNotFound, "Container not found", nil)
-				return
-			}
+			response.Container.Name = name
+			response.Container.State.Health = &types.Health{Status: "offline"}
+			respondWithSuccess(w, "", response)
+			return
 		}
 
 		// Get matching service configuration
@@ -246,21 +253,7 @@ func handleGetContainer(m *nes.Manager) http.HandlerFunc {
 		m.Mu.RUnlock()
 
 		// Build response with combined information
-		response := struct {
-			Config    *nes.Service        `json:"service_config,omitempty"`
-			Container types.ContainerJSON `json:"container"`
-			Resources struct {
-				Memory    float64 `json:"memory_usage_mb,omitempty"`
-				CPU       float64 `json:"cpu_usage_percent,omitempty"`
-				DiskRead  int64   `json:"disk_read_bytes,omitempty"`
-				DiskWrite int64   `json:"disk_write_bytes,omitempty"`
-			} `json:"resources"`
-			Networks map[string]*network.EndpointSettings `json:"networks"`
-			Volumes  map[string]struct{}                  `json:"volumes"`
-			Ports    []types.Port                         `json:"ports"`
-			Labels   map[string]string                    `json:"labels"`
-			LogTail  []string                             `json:"recent_logs,omitempty"`
-		}{
+		response = ContainerResponse{
 			Container: cntr,
 			Networks:  cntr.NetworkSettings.Networks,
 			Volumes:   cntr.Config.Volumes,
@@ -276,7 +269,7 @@ func handleGetContainer(m *nes.Manager) http.HandlerFunc {
 		if cntr.State.Running {
 			stats, err := m.Client.ContainerStats(r.Context(), cntr.ID, false)
 			if err == nil {
-				var statsJSON types.StatsJSON
+				var statsJSON container.Stats
 				if err := json.NewDecoder(stats.Body).Decode(&statsJSON); err == nil {
 					// Convert memory usage to MB
 					response.Resources.Memory = float64(statsJSON.MemoryStats.Usage) / 1024 / 1024
@@ -289,8 +282,10 @@ func handleGetContainer(m *nes.Manager) http.HandlerFunc {
 					}
 
 					// Add IO stats
-					response.Resources.DiskRead = int64(statsJSON.BlkioStats.IoServiceBytesRecursive[0].Value)
-					response.Resources.DiskWrite = int64(statsJSON.BlkioStats.IoServiceBytesRecursive[1].Value)
+					if len(statsJSON.BlkioStats.IoServiceBytesRecursive) == 2 {
+						response.Resources.DiskRead = int64(statsJSON.BlkioStats.IoServiceBytesRecursive[0].Value)
+						response.Resources.DiskWrite = int64(statsJSON.BlkioStats.IoServiceBytesRecursive[1].Value)
+					}
 				}
 				stats.Body.Close()
 			}
