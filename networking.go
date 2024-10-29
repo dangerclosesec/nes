@@ -9,12 +9,6 @@ import (
 	"github.com/docker/docker/api/types/network"
 )
 
-type Route struct {
-	Service   string   `yaml:"service"`
-	Port      int      `yaml:"port"`
-	Protocols []string `yaml:"protocols,omitempty"`
-}
-
 type Network struct {
 	Driver     string            `yaml:"driver"`
 	Config     map[string]string `yaml:"config,omitempty"`

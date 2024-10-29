@@ -9,6 +9,7 @@ const (
 	ErrDocker
 	ErrContainer
 	ErrNetwork
+	ErrLoadBalancer
 )
 
 // Custom error structure

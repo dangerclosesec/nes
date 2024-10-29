@@ -3,3 +3,4 @@ bin/
 example.yml
 old/
 old2/
+*.go_

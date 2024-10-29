@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dangerclosesec/nes/internal/metrics"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
@@ -25,6 +26,7 @@ type Manager struct {
 	Ctx           context.Context
 	LogFile       *os.File
 	StreamLogs    bool
+	LoadBalancer  *LoadBalancer
 	ErrorChan     chan *Error
 	Mu            sync.RWMutex
 	ShutdownChan  chan struct{}
@@ -214,6 +216,13 @@ func (m *Manager) StartServices() error {
 			return err
 		}
 	}
+
+	m.Mu.Lock()
+	// if m.health != nil {
+	// 	m.health.ActiveContainers[name] = true
+	// }
+	metrics.ServiceCount.Add(float64(len(m.Config.Services)))
+	m.Mu.Unlock()
 
 	return nil
 }

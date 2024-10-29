@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dangerclosesec/nes/internal/metrics"
 	"github.com/dangerclosesec/nes/internal/utils"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
@@ -72,6 +73,17 @@ func (m *Manager) StartContainer(name string, service Service) error {
 
 	// Pull image with retry logic
 	for retries := 0; retries < 3; retries++ {
+		filterArgs := filters.NewArgs()
+		filterArgs.Add("reference", service.Image)
+		// List images with the filter
+		images, err := m.Client.ImageList(m.Ctx, image.ListOptions{
+			Filters: filterArgs,
+		})
+
+		if len(images) > 0 && err == nil {
+			break
+		}
+
 		reader, err := m.Client.ImagePull(m.Ctx, service.Image, image.PullOptions{})
 		if err == nil {
 			if _, err := io.Copy(io.Discard, reader); err != nil {
@@ -325,11 +337,12 @@ func (m *Manager) StartContainer(name string, service Service) error {
 	}
 
 	// // Update container health status
-	// m.Mu.Lock()
+	m.Mu.Lock()
 	// if m.health != nil {
 	// 	m.health.ActiveContainers[name] = true
 	// }
-	// m.Mu.Unlock()
+	metrics.ServiceContainerCount.WithLabelValues(service.Hostname, name).Inc()
+	m.Mu.Unlock()
 
 	log.Printf("Successfully started container %s (%s)", name, resp.ID[:12])
 	return nil

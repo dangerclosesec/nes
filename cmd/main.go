@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	stdlog "log"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/dangerclosesec/nes"
 	"github.com/dangerclosesec/nes/internal/api"
+	"github.com/dangerclosesec/nes/internal/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -34,6 +36,15 @@ var (
 	withLogFile     bool
 	withLogFilePath string
 
+	// StreamLog configuration
+	withStreamLog string
+
+	// LogFile configuration
+	withLoadbalancer        bool
+	withLoadbalancerAddr    string
+	withLoadbalancerTls     bool
+	withLoadbalancerTlsAddr string
+
 	//
 	log = stdlog.New(os.Stdout, "\033[38;5;239m[ \033[38;5;2mn\033[38;5;214me\033[38;5;200ms    \033[38;5;239m] \033[0m", stdlog.LstdFlags|stdlog.Lmsgprefix|stdlog.Lmicroseconds)
 )
@@ -51,19 +62,18 @@ func init() {
 	flag.BoolVar(&withLogFile, "with-logfile", true, "")
 	flag.StringVar(&withLogFilePath, "with-logfile-path", "./n8s.log", "")
 
+	flag.StringVar(&withStreamLog, "with-streamlog", "", "")
+
+	flag.BoolVar(&withLoadbalancer, "with-lb", true, "")
+	flag.StringVar(&withLoadbalancerAddr, "with-lb-addr", ":80", "")
+	flag.BoolVar(&withLoadbalancerTls, "with-lb-tls", true, "")
+	flag.StringVar(&withLoadbalancerTlsAddr, "with-lb-tls-addr", ":443", "")
+
 	flag.Parse()
 
 	if withMetrics {
-		prometheus.MustRegister(prometheus.NewGaugeFunc(
-			prometheus.GaugeOpts{
-				Name: "lb_health_status",
-				Help: "Current health status of the load balancer (1 for healthy, 0 for unhealthy)",
-			},
-			func() float64 {
-				// This is just a placeholder
-				return 1
-			},
-		))
+		prometheus.MustRegister(metrics.ServiceCount)
+		prometheus.MustRegister(metrics.ServiceContainerCount)
 	}
 }
 
@@ -75,9 +85,16 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	opts := []nes.Option{
-		nes.WithStreamLogs(),
+	opts := []nes.Option{}
+
+	if withStreamLog != "" {
+		opts = append(opts, nes.WithStreamLogs())
 	}
+
+	if withLogFile {
+		opts = append(opts, nes.WithLogFile(withLogFilePath))
+	}
+
 	mgr, err := nes.NewManager(ctx, configFile, opts...)
 	if err != nil {
 		log.Fatalf("failed %s", err)
@@ -110,6 +127,26 @@ func main() {
 				log.Fatalf("Server failed: %v", err)
 			}
 		}()
+	}
+
+	// Ugly pattern, but momma always said it could grow up to do great things.
+	if withLoadbalancer || withLoadbalancerTls {
+		log.Println("Starting loadbalancer")
+
+		lbOpts := []nes.LoadBalancerOption{}
+		if withLoadbalancer {
+			log.Printf("Starting loadbalancer on %s\n", withLoadbalancerAddr)
+			lbOpts = append(lbOpts, nes.LoadBalancerWithHttp(withLoadbalancerAddr))
+		}
+
+		if withLoadbalancerTls {
+			log.Printf("Starting tls loadbalancer on %s\n", withLoadbalancerTlsAddr)
+			lbOpts = append(lbOpts, nes.LoadBalancerWithTls(withLoadbalancerTlsAddr, &tls.Config{}))
+		}
+
+		if err := mgr.StartLoadBalancer(lbOpts...); err != nil {
+			log.Fatalf("failed to start loadbalancer with error: %v", err)
+		}
 	}
 
 	// Setup signal handling
