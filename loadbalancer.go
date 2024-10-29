@@ -25,6 +25,28 @@ import (
 	"golang.org/x/net/http2/h2c"
 )
 
+// LoadBalancer represents a load balancer that manages traffic distribution
+// across multiple backend servers. It includes configuration settings,
+// reverse proxies, metrics, TLS configuration, certificate management,
+// health status monitoring, and connection handling for both WebSocket and
+// gRPC connections. It also manages HTTP servers and container-related
+// operations.
+//
+// Fields:
+// - config: Configuration settings for the load balancer.
+// - proxies: A map of reverse proxies for routing traffic to backend servers.
+// - metrics: An HTTP ServeMux for serving metrics endpoints.
+// - tlsConfig: TLS configuration for secure communication.
+// - certManager: Manager for automatic certificate management.
+// - health: Health status monitoring for the load balancer.
+// - Mu: A read-write mutex for synchronizing access to shared resources.
+// - done: A channel used to signal the shutdown of the load balancer.
+// - wsConns: A concurrent map for managing WebSocket connections.
+// - grpcConns: A concurrent map for managing gRPC connections.
+// - servers: A slice of HTTP servers managed by the load balancer.
+// - upgrader: WebSocket upgrader for handling WebSocket connections.
+// - containerCache: Cache for storing container-related data.
+// - resolver: Resolver for managing container-related operations.
 type LoadBalancer struct {
 	config         *LoadBalancerConfig
 	proxies        map[string]*httputil.ReverseProxy
@@ -32,7 +54,7 @@ type LoadBalancer struct {
 	tlsConfig      *tls.Config
 	certManager    *autocert.Manager
 	health         *HealthStatus
-	mu             sync.RWMutex
+	Mu             sync.RWMutex
 	done           chan struct{}
 	wsConns        sync.Map
 	grpcConns      sync.Map
@@ -40,6 +62,14 @@ type LoadBalancer struct {
 	upgrader       websocket.Upgrader
 	containerCache *ContainerCache
 	resolver       *ContainerResolver
+}
+
+// GetHealth returns the current health status of the LoadBalancer.
+// It acquires a read lock to ensure thread-safe access to the health status.
+func (lb *LoadBalancer) GetHealth() *HealthStatus {
+	lb.Mu.RLock()
+	defer lb.Mu.RUnlock()
+	return lb.health
 }
 
 type LoadBalancerOption func(*LoadBalancer) error
@@ -493,8 +523,8 @@ func (lb *LoadBalancer) healthCheckLoop() {
 }
 func (lb *LoadBalancer) performHealthCheck() {
 	// DBG: log.Printf("Performing health check")
-	lb.mu.Lock()
-	defer lb.mu.Unlock()
+	lb.Mu.Lock()
+	defer lb.Mu.Unlock()
 
 	allHealthy := true
 	lb.health.LastCheck = time.Now()
@@ -507,7 +537,7 @@ func (lb *LoadBalancer) performHealthCheck() {
 		// Resolve actual host and port using container resolver
 		hostIP, hostPort, err := lb.resolver.ResolveTarget(route.Service, route.Port)
 		if err != nil {
-			log.Printf("Failed to reach service %s: %v", route.Service, err)
+			log.Printf("Service unhealthy or misconfigured: %s: %v", route.Service, err)
 			allHealthy = false
 			lb.health.FailedEndpoints[path] = fmt.Errorf("service resolution failed: %w", err)
 			lb.health.ConsecutiveFails++
@@ -665,8 +695,8 @@ func (lb *LoadBalancer) checkEndpoint(target string) error {
 }
 
 func (lb *LoadBalancer) isHealthy() bool {
-	lb.mu.RLock()
-	defer lb.mu.RUnlock()
+	lb.Mu.RLock()
+	defer lb.Mu.RUnlock()
 	return lb.health.Healthy
 }
 
