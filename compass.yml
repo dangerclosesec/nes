@@ -1,0 +1,18 @@
+name: nes
+id: ari:cloud:compass:9a7a0a2c-1d0c-44a5-953d-0301fc368251:component/1a2fcb31-6e65-4be9-add3-26283ecd5eec/390d1ac7-89e5-49c4-aee3-bdc79ca40794
+description: null
+configVersion: 1
+typeId: APPLICATION
+ownerId: null
+fields:
+  tier: 4
+links:
+  - name: null
+    type: REPOSITORY
+    url: https://github.com/dangerclosesec/nes
+relationships:
+  DEPENDS_ON: []
+labels:
+  - language:go
+  - source:github
+customFields: null
